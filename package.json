@@ -1,0 +1,27 @@
+{
+  "name": "p5js-render",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx .",
+    "start": "tsx ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/express": "^4.17.17",
+    "tsx": "^3.12.8"
+  },
+  "dependencies": {
+    "cross-fetch": "^4.0.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "firebase-admin": "^11.10.1",
+    "form-data": "^4.0.0",
+    "ipfs-http-client": "^56.0.2",
+    "p-queue": "^7.4.1",
+    "puppeteer": "^21.1.1"
+  }
+}
