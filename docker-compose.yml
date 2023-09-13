@@ -1,31 +1,30 @@
 version: "3.9"
 
 networks:
-  p5js_render:
+  p5js_render_network:
 
 services:
   p5js_render_app:
     build: .
     container_name: p5js_render_app
     environment:
-      - REDIS_HOST=redis
-    # depends_on:
-    #   - redis
-    ports:
-      - 3000:3000
+      - INFURA_IPFS_API_KEY=${INFURA_IPFS_API_KEY}
+      - INFURA_IPFS_API_KEY_SECRET=${INFURA_IPFS_API_KEY_SECRET}
+    # ports:
+    #   - 8080:8080
     restart: always
     networks:
-      - p5js_render
+      - p5js_render_network
     volumes:
-      - ./data:/data
+      - ${TMP_DIR}:/data
       - ./logs:/app/logs
 
-  # p5js_render_cloudflare_tunnel:
-  #   container_name: p5js_render_cloudflare_tunnel
-  #   image: cloudflare/cloudflared:2023.4.1
-  #   restart: unless-stopped
-  #   environment:
-  #     - TUNNEL_TOKEN=$TUNNEL_TOKEN
-  #   command: tunnel --no-autoupdate --url http://app:8080 run
-  #   networks:
-  #     - p5js_render
+  p5js_render_cloudflare_tunnel:
+    container_name: p5js_render_cloudflare_tunnel
+    image: cloudflare/cloudflared:2023.4.1
+    restart: unless-stopped
+    environment:
+      - TUNNEL_TOKEN=$TUNNEL_TOKEN
+    command: tunnel --no-autoupdate --url http://p5js_render_app:8080 run
+    networks:
+      - p5js_render_network

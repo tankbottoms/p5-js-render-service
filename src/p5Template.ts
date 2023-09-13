@@ -1,7 +1,7 @@
 import fs from 'fs';
 
 function loadScript(filename: string) {
-	const src = fs.readFileSync(`./scripts/${filename}`).toString();
+	const src = fs.readFileSync(`./static/${filename}`).toString();
 	return `data:text/javascript;base64,${Buffer.from(src).toString('base64')}`;
 }
 

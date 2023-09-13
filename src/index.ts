@@ -11,7 +11,7 @@ import { log } from "./logging";
 import fs from "fs";
 import { pollCheckTasks } from "./polling";
 
-const PORT = 3000;
+const PORT = 8080;
 const app = express();
 
 app.use(express.json());
@@ -106,7 +106,7 @@ export async function processTask(task: Task) {
         const script = await response.text();
         const pinsPromises: Promise<IPFSPinReponse>[] = [];
 
-        const result = await renderScript(script, Math.min(40,nft.totalSupply), async (file, i) => {
+        const result = await renderScript(script, nft.totalSupply, async (file, i) => {
             total += 1;
             console.log('Processed:', total, 'Pinned:', Object.keys(pins).length, `Of total ${nft.totalSupply}`);
             const promise = pinningSevice.pinFile(file);
