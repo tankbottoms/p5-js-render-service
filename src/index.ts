@@ -106,17 +106,24 @@ export async function processTask(task: Task) {
         const script = await response.text();
         const pinsPromises: Promise<IPFSPinReponse>[] = [];
 
-        const result = await renderScript(script, nft.totalSupply, async (file, i) => {
+        let stopped = false;
+        const result = await renderScript(script, nft.totalSupply, async (file, i, stop) => {
+            if (stopped) return;
             total += 1;
             console.log('Processed:', total, 'Pinned:', Object.keys(pins).length, `Of total ${nft.totalSupply}`);
             const promise = pinningSevice.pinFile(file);
             pinsPromises.push(promise);
             const pinResponse = await promise;
             pins[`${i + 1}.png`] = { Hash: pinResponse.Hash, Size: file.length };
+            if (task.getState() === TaskState.Canceled) {
+                stopped = true;
+                return stop();
+            }
         });
-        if (!result) {
-            handleerror();
-            fs.rmSync(`/data/${task.task}.json`, { force: true });
+        const taskCanceled = task.getState() === TaskState.Canceled;
+        if (!result || taskCanceled) {
+            if (!taskCanceled) handleerror();
+            fs.rmSync(`/data/${task.task}.json`, { force: true, recursive: true, maxRetries: 5 });
             console.log(`deleting task of collection ${task.collectionId}`);
             return;
         }
@@ -151,7 +158,7 @@ export async function processTask(task: Task) {
     }
 }
 
-async function renderScript(script: string, count: number, callback: (image: Buffer, index: number) => void) {
+async function renderScript(script: string, count: number, callback: (image: Buffer, index: number, stop: () => void) => void) {
     const MAX_PAGES = 15;
     const startTime = Date.now();
 
@@ -250,7 +257,10 @@ async function renderScript(script: string, count: number, callback: (image: Buf
                 console.log('error', base64Image.error);
                 errored = true;
             } else {
-                void callback(Buffer.from(base64Image, 'base64'), i);
+                void callback(Buffer.from(base64Image, 'base64'), i, () => {
+                    log.warn('user canceled the process');
+                    errored = true;
+                });
             }
         });
     }
