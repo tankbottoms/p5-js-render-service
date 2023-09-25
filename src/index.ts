@@ -1,19 +1,24 @@
 import express, { Request, Response } from "express";
 import puppeteer, { Page } from 'puppeteer';
 import fetch from 'cross-fetch';
-import { getCollection, sendMessage, updateCollection, updateNotification } from './firebase';
+import { getCollection, sendMessage, updateCollection, updateNotification, updateProgress } from './firebase';
 import { generateP5Html } from './p5Template';
 import PQueue from 'p-queue';
 import pinningSevice, { IPFSPinReponse } from './ipfs';
 import { BASE_DIR, Task, TaskState } from './task';
-import { PinningStates } from './types';
+import { NftStatus, PinningStates } from './types';
 import { log } from "./logging";
 import fs from "fs";
+import cors from "cors";
 import { pollCheckTasks } from "./polling";
 
 const PORT = 8080;
 const app = express();
 
+app.use(cors({
+    origin: '*',
+    optionsSuccessStatus: 200
+}))
 app.use(express.json());
 app.use(express.urlencoded());
 
@@ -77,6 +82,9 @@ async function deleteTask(req: Request, res: Response) {
 // handle();
 
 export async function processTask(task: Task) {
+
+    const updateProgressCallback = (progress: number, remainingTime: number, pinnedCount: number, totalCount: number) =>
+        updateProgress(collection.id, progress, remainingTime, pinnedCount, totalCount);
     function handleerror() {
         console.log(`while updating collection nft not found`,);
         sendMessage(
@@ -91,6 +99,7 @@ export async function processTask(task: Task) {
     const nftId = task.nftId;
     const collection = await getCollection(collectionId);
     if (!collection) {
+        log.failed('collection not found!');
         // res.send('collection not found');
         return null;
     }
@@ -100,6 +109,9 @@ export async function processTask(task: Task) {
     if (!nft) {
         // Todo: handle nft not found
         log.failed('nft not found in collection');
+
+        fs.rmSync(`/data/${task.task}.json`, { force: true });
+        log.warn(`deleting task of collection ${task.collectionId}`);
     } else {
         const scriptUrl = <string>nft['script'];
         const response = await fetch(scriptUrl);
@@ -107,6 +119,10 @@ export async function processTask(task: Task) {
         const pinsPromises: Promise<IPFSPinReponse>[] = [];
 
         let stopped = false;
+        let doneCount = 0;
+        const startedAt = Date.now();
+        let lastMessageAt = 0;
+        let lastUpdateAt = 0;
         const result = await renderScript(script, nft.totalSupply, async (file, i, stop) => {
             if (stopped) return;
             total += 1;
@@ -115,9 +131,19 @@ export async function processTask(task: Task) {
             pinsPromises.push(promise);
             const pinResponse = await promise;
             pins[`${i + 1}.png`] = { Hash: pinResponse.Hash, Size: file.length };
+            doneCount++;
             if (task.getState() === TaskState.Canceled) {
                 stopped = true;
                 return stop();
+            } else {
+                if (Date.now() - lastUpdateAt > 3_000) {
+                    updateProgressCallback(Math.floor((doneCount / nft.totalSupply) * 100), ((Date.now() - startedAt) / doneCount) * (nft.totalSupply - doneCount), doneCount, nft.totalSupply);
+                    lastUpdateAt = Date.now();
+                }
+                if (Date.now() - lastMessageAt > 10_000) {
+                    sendMessage(task.userId, `Rendered ${doneCount} out of ${nft.totalSupply} ${collection.symbol ?? 'nft'}s`, task.collectionId, collection.network);
+                    lastMessageAt = Date.now();
+                }
             }
         });
         const taskCanceled = task.getState() === TaskState.Canceled;
@@ -125,6 +151,12 @@ export async function processTask(task: Task) {
             if (!taskCanceled) handleerror();
             fs.rmSync(`/data/${task.task}.json`, { force: true, recursive: true, maxRetries: 5 });
             console.log(`deleting task of collection ${task.collectionId}`);
+            sendMessage(
+                task.userId,
+                `NFT rendering stopped`,
+                collection.id,
+                collection.network
+            );
             return;
         }
         console.log('waiting for pinning to finish');
@@ -139,6 +171,7 @@ export async function processTask(task: Task) {
             const collection = await getCollection(task.collectionId);
             const nft = collection.nfts.find(nft => nft._id === nftId);
             if (nft) {
+                nft._status = NftStatus.SAVED;
                 nft.ipfs = {
                     IpfsHash: finalCid,
                     PinSize: 0,
@@ -146,6 +179,7 @@ export async function processTask(task: Task) {
                 }
                 updateCollection(task.collectionId, collection);
                 console.log(`Updated collection`,);
+                sendMessage(task.userId, `Rendered all ${nft.totalSupply} ${collection.symbol ?? 'nft'}s`, task.collectionId, collection.network);
                 // TODO: handle task complete
             }
         } else {
@@ -153,7 +187,7 @@ export async function processTask(task: Task) {
         }
 
         fs.rmSync(`/data/${task.task}.json`, { force: true });
-        console.log(`deleting task of collection ${task.collectionId}`);
+        log.warn(`deleting task of collection ${task.collectionId}`);
 
     }
 }
